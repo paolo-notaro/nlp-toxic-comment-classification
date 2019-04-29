@@ -22,7 +22,7 @@ def compute_vocab(csv_file, dst_file, tokenizer=str.split, max_size=None):
     vocab = set(map(lambda x: x[0], sorted(occurrences.items(), key=lambda x: x[1], reverse=True)[:max_size - 1]))
     vocab.add('<PAD>')
     vocab.add('<UNK>')
-    vocab = LabelIndexMap(vocab, required_mappings={'<PAD>': 0, '<UNK>': 1})
+    vocab = LabelIndexMap.from_list_of_labels(vocab, required_mappings={'<PAD>': 0, '<UNK>': 1})
 
     # save vocab
     with open(dst_file, 'w') as f:
@@ -34,31 +34,34 @@ class LabelIndexMap(object):
     """
     Class used to remap N labels from cluttered, arbitrary values to non-negative, contiguous values in range [0, N-1].
     """
+    def __init__(self, dict_of_values):
+        self.label_to_index = dict_of_values
+        self.index_to_label = {index: label for label, index in dict_of_values.items()}
 
-    def __init__(self, all_labels, sort_key=None, required_mappings=None):
+    @staticmethod
+    def from_list_of_labels(all_labels, sort_key=None, required_mappings=None):
         assert (sort_key is None or required_mappings is None), "use only one among sort_key, predefined_positions"
-        self.individual_labels = list(set(all_labels))
+        individual_labels = list(set(all_labels))
         if sort_key is not None:
-            self.individual_labels = sorted(all_labels, key=sort_key)
+            individual_labels = sorted(all_labels, key=sort_key)
         if required_mappings is not None:
             # set items to the required positions
             for element, required_position in required_mappings.items():
-                if required_position >= len(self.individual_labels):
+                if required_position >= len(individual_labels):
                     raise ValueError("Required position is out of range")
-                if required_mappings.get(self.individual_labels[required_position], None) == required_position \
-                        and element != self.individual_labels[required_position]:
+                if required_mappings.get(individual_labels[required_position], None) == required_position \
+                        and element != individual_labels[required_position]:
                     raise ValueError("Incompatible required mapping: "
                                      "label '{}' and '{}' both required "
-                                     "in position {}".format(element, self.individual_labels[required_position],
+                                     "in position {}".format(element, individual_labels[required_position],
                                                              required_position))
 
                 # swap
-                current_position = self.individual_labels.index(element)
-                self.individual_labels[current_position] = self.individual_labels[required_position]
-                self.individual_labels[required_position] = element
+                current_position = individual_labels.index(element)
+                individual_labels[current_position] = individual_labels[required_position]
+                individual_labels[required_position] = element
 
-        self.label_to_index = {label: i for i, label in enumerate(self.individual_labels)}
-        self.index_to_label = {i: label for i, label in enumerate(self.individual_labels)}
+        return LabelIndexMap({label: i for i, label in enumerate(individual_labels)})
 
     def __getitem__(self, item):
         return self.label_to_index[item]
@@ -78,7 +81,7 @@ class LabelIndexMap(object):
             for row in f:
                 label, index = row.split()
                 v[label] = int(index)
-        return LabelIndexMap(v.keys(), required_mappings=v)
+        return LabelIndexMap(dict_of_values=v)
 
 
 class ToxicCommentDataset(Dataset):
