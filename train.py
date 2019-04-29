@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from torch.nn import BCELoss
+from torch.nn.functional import binary_cross_entropy
 from torch.optim import Adam
 from math import inf
 import numpy as np
@@ -16,6 +16,7 @@ log_every = 1
 val_ratio = 0.2
 positive_threshold = 0.5
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+ratio_positive_examples = torch.tensor([0.0960, 0.0101, 0.0531, 0.0030, 0.0493, 0.0086]).to(device)
 dataset_file_path = '/home/paulstpr/Downloads/WhatsApp Chat with Sara Pontelli 💙.txt'
 
 
@@ -75,7 +76,6 @@ if __name__ == '__main__':
                                   additional_fc_layer=64, dev=device)
     model.to(device)
     optimizer = Adam(model.parameters(), lr=lr)
-    criterion = BCELoss(reduction='mean')
     print('done.')
 
     print("Starting training...")
@@ -93,11 +93,13 @@ if __name__ == '__main__':
 
             # move to GPU
             tokens = tokens.to(device)
-            targets = targets.to(device)
+            targets = targets.float().to(device)
+            class_weights = torch.abs(targets - ratio_positive_examples)
+            class_weights = class_weights/class_weights.sum(0)*tokens.shape[0]
 
             # forward
             output = model(tokens, input_lengths)
-            loss = criterion(output, targets.float())
+            loss = binary_cross_entropy(input=output, target=targets, weight=class_weights, reduction='mean')
             loss_value = loss.item()
 
             # backward
@@ -125,19 +127,21 @@ if __name__ == '__main__':
 
             # move to GPU
             tokens = tokens.to(device)
-            targets = targets.to(device)
-            targets_byte = targets.byte()
+            targets = targets.float().to(device)
+            class_weights = torch.abs(targets - ratio_positive_examples)
+            class_weights = class_weights / class_weights.sum(0) * tokens.shape[0]
+            targets_b = targets.byte()
 
             # forward
             output = model(tokens, input_lengths)
 
             # compute stats
-            y_pred = output > positive_threshold
-            total_correct += (y_pred == targets_byte).sum(dim=0).cpu().float()
-            total_true_positives += ((y_pred == 1) & (targets_byte == 1)).sum(dim=0).cpu().float()
-            total_false_positives += ((y_pred == 1) & (targets_byte == 0)).sum(dim=0).cpu().float()
-            total_real_positives += (targets_byte == 1).sum(dim=0).cpu().float()
-            loss = criterion(output, targets.float())
+            y_pred = (output > positive_threshold)
+            total_correct += (y_pred == targets_b).sum(dim=0).cpu().float()
+            total_true_positives += ((y_pred == 1) & (targets_b == 1)).sum(dim=0).cpu().float()
+            total_false_positives += ((y_pred == 1) & (targets_b == 0)).sum(dim=0).cpu().float()
+            total_real_positives += (targets_b == 1).sum(dim=0).cpu().float()
+            loss = binary_cross_entropy(input=output, target=targets, weight=class_weights, reduction='mean')
             val_loss += loss.item()
 
         val_loss /= len(val_loader)
@@ -149,7 +153,7 @@ if __name__ == '__main__':
         writer.add_scalar("Loss/val", val_loss, global_step=(epoch + 1) * len(train_loader))
         writer.add_embedding(mat=model.embedding.weight.data, metadata=ds_train.vocab.label_to_index.keys(),
                              global_step=(epoch + 1) * len(train_loader))
-        print("Evaluation completed.\nValidation loss:\t{:2.6f}\naccuracies:\t{}\nprecisions:\t{}\n"
+        print("\nEvaluation completed.\nValidation loss:\t{:2.6f}\naccuracies:\t{}\nprecisions:\t{}\n"
               "recalls:\t{}\nF1 scores:\t{}".format(val_loss, accuracies, precisions, recalls, f1_scores))
 
         # save
