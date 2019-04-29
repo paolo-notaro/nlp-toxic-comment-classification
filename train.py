@@ -67,11 +67,11 @@ if __name__ == '__main__':
     padding_idx = ds_train.vocab.label_to_index['<PAD>']
     collate_fn = CollatePad(padding_idx)
     train_loader = DataLoader(ds_train, shuffle=True, batch_size=bs, collate_fn=collate_fn)
-    val_loader = DataLoader(ds_val, shuffle=False, batch_size=bs, collate_fn=collate_fn)
+    val_loader = DataLoader(ds_val, shuffle=False, batch_size=64, collate_fn=collate_fn)
 
     print("Loading model...", end='')
-    model = LSTMClassificationNet(num_embeddings=len(ds_train.vocab), embedding_dim=128, num_classes=6,
-                                  padding_idx=padding_idx, lstm_layers=2, hidden_size=512, p_dropout=0.5,
+    model = LSTMClassificationNet(num_embeddings=len(ds_train.vocab), embedding_dim=64, num_classes=6,
+                                  padding_idx=padding_idx, lstm_layers=1, hidden_size=512, p_dropout=0.5,
                                   additional_fc_layer=64, dev=device)
     model.to(device)
     optimizer = Adam(model.parameters(), lr=lr)
@@ -82,6 +82,7 @@ if __name__ == '__main__':
     writer = SummaryWriter()
     np.set_printoptions(4)
     best_val_loss = inf
+    best_f1_score = 0
     for epoch in range(num_epochs):
 
         model.train()
@@ -116,30 +117,43 @@ if __name__ == '__main__':
         print("\nEpoch completed in {:3.2f}s. Evaluating...\r".format(epoch_duration), end='')
         model.eval()
         val_loss = 0
-        total_correct = torch.zeros((6, ), dtype=torch.long)
+        total_correct = torch.zeros((6, ))
+        total_true_positives = torch.zeros((6,))
+        total_false_positives = torch.zeros((6,))
+        total_real_positives = torch.zeros((6,))
         for j, ((tokens, targets), (input_lengths, _)) in enumerate(val_loader):
 
             # move to GPU
             tokens = tokens.to(device)
             targets = targets.to(device)
+            targets_byte = targets.byte()
 
             # forward
             output = model(tokens, input_lengths)
+
+            # compute stats
             y_pred = output > positive_threshold
-            total_correct = total_correct + (y_pred == targets.byte()).sum(dim=0).cpu()
+            total_correct += (y_pred == targets_byte).sum(dim=0).cpu().float()
+            total_true_positives += ((y_pred == 1) & (targets_byte == 1)).sum(dim=0).cpu().float()
+            total_false_positives += ((y_pred == 1) & (targets_byte == 0)).sum(dim=0).cpu().float()
+            total_real_positives += (targets_byte == 1).sum(dim=0).cpu().float()
             loss = criterion(output, targets.float())
             val_loss += loss.item()
 
         val_loss /= len(val_loader)
-        accuracies = total_correct.float() / len(ds_val)
+        accuracies = (total_correct.numpy() / len(ds_val))
+        precisions = (total_true_positives / (total_true_positives + total_false_positives)).numpy()
+        recalls = (total_true_positives / total_real_positives).numpy()
+        f1_scores = 2*precisions*recalls/(precisions + recalls)
+
         writer.add_scalar("Loss/val", val_loss, global_step=(epoch + 1) * len(train_loader))
         writer.add_embedding(mat=model.embedding.weight.data, metadata=ds_train.vocab.label_to_index.keys(),
                              global_step=(epoch + 1) * len(train_loader))
-        print("Evaluation completed. Validation loss: {:2.6f}, "
-              "total accuracy: {:.4f}, "
-              "accuracies: {}".format(val_loss, accuracies.sum() / 6, accuracies.numpy().tolist()))
+        print("Evaluation completed.\nValidation loss:\t{:2.6f}\naccuracies:\t{}\nprecisions:\t{}\n"
+              "recalls:\t{}\nF1 scores:\t{}".format(val_loss, accuracies, precisions, recalls, f1_scores))
 
         # save
-        if val_loss < best_val_loss:
+        avg_f1_score = np.average(f1_scores)
+        if val_loss < best_val_loss or avg_f1_score > best_f1_score:
             best_val_loss = val_loss
-            torch.save(model, "val_{:.4f}.pt".format(val_loss))
+            torch.save(model, "loss={:.4f}_f1={:.4f}.pt".format(val_loss, avg_f1_score))
