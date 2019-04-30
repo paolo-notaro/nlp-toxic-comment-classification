@@ -12,11 +12,12 @@ from tensorboardX import SummaryWriter
 num_epochs = 100
 lr = 3e-4
 bs = 32
+bs_val = 256
 log_every = 1
 val_ratio = 0.2
-classification_thresholds = torch.tensor([0.8, 0.95, 0.9, 0.8, 0.9, 0.95])
+
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-ratio_positive_examples = torch.tensor([0.0960, 0.0101, 0.0531, 0.0030, 0.0493, 0.0086]).to(device)
+classification_thresholds = torch.tensor([0.8, 0.95, 0.9, 0.8, 0.9, 0.95]).to(device)
 
 
 class CollatePad(object):
@@ -63,11 +64,11 @@ if __name__ == '__main__':
 
     ds_train, ds_val = produce_datasets('jigsaw-toxic-comment-classification-challenge/train.csv',
                                         'jigsaw-toxic-comment-classification-challenge/vocab.txt', val_ratio=val_ratio)
-
+    ratio_positive_examples = torch.tensor(ds_train.prior_probabilities).to(device)
     padding_idx = ds_train.vocab.label_to_index['<PAD>']
     collate_fn = CollatePad(pad_value=padding_idx)
     train_loader = DataLoader(ds_train, shuffle=True, batch_size=bs, collate_fn=collate_fn)
-    val_loader = DataLoader(ds_val, shuffle=False, batch_size=64, collate_fn=collate_fn)
+    val_loader = DataLoader(ds_val, shuffle=False, batch_size=bs_val, collate_fn=collate_fn)
 
     print("Loading model...", end='')
     model = LSTMClassificationNet(num_embeddings=len(ds_train.vocab), embedding_dim=64, num_classes=6,
@@ -93,7 +94,7 @@ if __name__ == '__main__':
             # move to GPU
             tokens = tokens.to(device)
             targets = targets.float().to(device)
-            class_weights = targets*(1 - ratio_positive_examples) + (1 - targets)*ratio_positive_examples
+            class_weights = targets/ratio_positive_examples + (1 - targets)/(1 - ratio_positive_examples)
             class_weights = class_weights/class_weights.sum(0)*tokens.shape[0]
 
             # forward
@@ -127,7 +128,7 @@ if __name__ == '__main__':
             # move to GPU
             tokens = tokens.to(device)
             targets = targets.float().to(device)
-            class_weights = targets*(1 - ratio_positive_examples) + (1 - targets)*ratio_positive_examples
+            class_weights = targets/ratio_positive_examples + (1 - targets)/(1 - ratio_positive_examples)
             class_weights = class_weights / class_weights.sum(0) * tokens.shape[0]
             targets_b = targets.byte()
 
