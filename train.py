@@ -14,10 +14,9 @@ lr = 3e-4
 bs = 32
 log_every = 1
 val_ratio = 0.2
-positive_threshold = 0.5
+classification_thresholds = torch.tensor([0.8, 0.95, 0.9, 0.8, 0.9, 0.95])
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 ratio_positive_examples = torch.tensor([0.0960, 0.0101, 0.0531, 0.0030, 0.0493, 0.0086]).to(device)
-dataset_file_path = '/home/paulstpr/Downloads/WhatsApp Chat with Sara Pontelli 💙.txt'
 
 
 class CollatePad(object):
@@ -52,7 +51,7 @@ class CollatePad(object):
         for group_index, max_length in enumerate(max_lengths):
             tensors = [tensors[group_index] for tensors in batch]
             single_tensor_shape = (max_length, *batch[0][group_index].shape[1:])
-            padded_tensor = self.pad_value * torch.ones((batch_size, *single_tensor_shape), dtype=torch.long)
+            padded_tensor = torch.mul(torch.ones((batch_size, *single_tensor_shape), dtype=torch.long), self.pad_value)
             for batch_index, length in enumerate(variable_lengths[:, group_index]):
                 padded_tensor[batch_index, :length] = tensors[batch_index]
             padded_batch.append(padded_tensor)
@@ -66,7 +65,7 @@ if __name__ == '__main__':
                                         'jigsaw-toxic-comment-classification-challenge/vocab.txt', val_ratio=val_ratio)
 
     padding_idx = ds_train.vocab.label_to_index['<PAD>']
-    collate_fn = CollatePad(padding_idx)
+    collate_fn = CollatePad(pad_value=padding_idx)
     train_loader = DataLoader(ds_train, shuffle=True, batch_size=bs, collate_fn=collate_fn)
     val_loader = DataLoader(ds_val, shuffle=False, batch_size=64, collate_fn=collate_fn)
 
@@ -94,7 +93,7 @@ if __name__ == '__main__':
             # move to GPU
             tokens = tokens.to(device)
             targets = targets.float().to(device)
-            class_weights = torch.abs(targets - ratio_positive_examples)
+            class_weights = targets*(1 - ratio_positive_examples) + (1 - targets)*ratio_positive_examples
             class_weights = class_weights/class_weights.sum(0)*tokens.shape[0]
 
             # forward
@@ -128,7 +127,7 @@ if __name__ == '__main__':
             # move to GPU
             tokens = tokens.to(device)
             targets = targets.float().to(device)
-            class_weights = torch.abs(targets - ratio_positive_examples)
+            class_weights = targets*(1 - ratio_positive_examples) + (1 - targets)*ratio_positive_examples
             class_weights = class_weights / class_weights.sum(0) * tokens.shape[0]
             targets_b = targets.byte()
 
@@ -136,7 +135,7 @@ if __name__ == '__main__':
             output = model(tokens, input_lengths)
 
             # compute stats
-            y_pred = (output > positive_threshold)
+            y_pred = (output > classification_thresholds)
             total_correct += (y_pred == targets_b).sum(dim=0).cpu().float()
             total_true_positives += ((y_pred == 1) & (targets_b == 1)).sum(dim=0).cpu().float()
             total_false_positives += ((y_pred == 1) & (targets_b == 0)).sum(dim=0).cpu().float()
