@@ -4,7 +4,7 @@ from nltk.tokenize import word_tokenize
 import torch
 
 
-def compute_vocab(csv_file, dst_file, tokenizer=str.split, max_size=None):
+def compute_vocab(csv_file, dst_file, tokenizer=word_tokenize, max_size=None):
 
     # load csv
     with open(csv_file, 'r') as csvf:
@@ -19,7 +19,7 @@ def compute_vocab(csv_file, dst_file, tokenizer=str.split, max_size=None):
     if max_size is None:
         max_size = len(occurrences)
 
-    vocab = set(map(lambda x: x[0], sorted(occurrences.items(), key=lambda x: x[1], reverse=True)[:max_size - 1]))
+    vocab = set(map(lambda x: x[0], sorted(occurrences.items(), key=lambda x: x[1], reverse=True)[:max_size - 2]))
     vocab.add('<PAD>')
     vocab.add('<UNK>')
     vocab = LabelIndexMap.from_list_of_labels(vocab, required_mappings={'<PAD>': 0, '<UNK>': 1})
@@ -118,8 +118,14 @@ def produce_datasets(csv_file, vocab, val_ratio=0.2):
     elif not isinstance(vocab, LabelIndexMap):
         raise ValueError("vocab must be str or LabelIndexMap")
 
+    # compute class prior probabilities
+    prior_probabilities = [sum(int(row[i])/len(rows) for row in rows) for i in range(2, 8)]
+
+    # produce datasets
     train_size = int((1 - val_ratio) * len(rows))
     train_set, val_set = ToxicCommentDataset(rows[:train_size], vocab), ToxicCommentDataset(rows[train_size:], vocab)
+    train_set.prior_probabilities = prior_probabilities
+    val_set.prior_probabilities = prior_probabilities
     return train_set, val_set
 
 
