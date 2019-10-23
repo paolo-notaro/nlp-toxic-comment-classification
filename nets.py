@@ -15,7 +15,7 @@ def kaiming_init(m):
                 torch.nn.init.constant_(param, 0)
 
 
-class LSTMClassificationNet(nn.Module):
+class LSTMMultiBinaryClassificationNet(nn.Module):
 
     def __init__(self, num_classes, num_embeddings, embedding_dim, hidden_size, lstm_layers,
                  p_dropout, padding_idx, dev, additional_fc_layer=None):
