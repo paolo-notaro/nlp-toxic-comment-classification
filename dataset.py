@@ -1,10 +1,67 @@
 from torch.utils.data import Dataset
 import csv
 from nltk.tokenize import word_tokenize
+import numpy as np
 import torch
+import os
 
 
-def compute_vocab(csv_file, dst_file, tokenizer=word_tokenize, max_size=None):
+def compute_binary_median_frequency_balancing(dataset):
+
+    print("Computing class weights...")
+    num_tasks = len(dataset[0][1])
+    frequencies = np.zeros((num_tasks, 2))
+    for sample, targets in dataset:
+        for j, target in enumerate(targets.int()):
+            frequencies[j, target] += 1
+
+    print(frequencies)
+    positive_class_weights = frequencies[:, 0] / frequencies[:, 1]
+    print(positive_class_weights)
+    return torch.tensor(positive_class_weights, dtype=torch.float)
+
+
+class CollatePad(object):
+
+    def __init__(self, pad_value=0):
+        self.pad_value = pad_value
+
+    def __call__(self, batch):
+        """
+        Collates groups of Tensors of variable lengths into one padded Tensor (for each group).
+        :param batch: list of tuple of tensors (e.g. list of 32 tuples, where the first elements are inputs and the
+        seconds are targets). Individual Tensors must be of shape (T, N1, N2, N3, ...) where T is the variable dimension
+        and N1, N2, N3, ... are any number of additional dimensions of fixed size. Inside the final Tensor, elements
+        will be sorted in descending order of length. IMPORTANT: if more than one group of Tensor has variable length,
+        it is assumed that the order according to length is consistent across groups, i.e. the variable lengths inside
+        the different groups of Tensor are equal along the same index in the group. Example: group 1 represents
+        tokenized sentences [["Hi", "Paolo", speaking"], ["Hi", "how", "are", "you", "today"]], group 2 POS tags
+        [[EXCL, NOM, VRB], [EXCL, ADV, BE, SUBJ, ADV]], lengths are consistent across groups thus the program can sort
+         according to the length of item of any attribute.
+        :return: tuple of:
+            * list of Tensors containing the padded batch, one for each group;
+            * list of Tensors containing the variable lengths, one for each group.
+        """
+
+        batch = sorted(batch, reverse=True, key=lambda elem: len(elem[0]))
+        variable_lengths = np.array([[tensor.shape[0] for tensor in tensors] for tensors in batch])
+        batch_size, num_tensors = variable_lengths.shape
+        max_lengths = np.max(variable_lengths, axis=0)
+
+        padded_batch = []
+        lengths = []
+        for group_index, max_length in enumerate(max_lengths):
+            tensors = [tensors[group_index] for tensors in batch]
+            single_tensor_shape = (max_length, *batch[0][group_index].shape[1:])
+            padded_tensor = torch.mul(torch.ones((batch_size, *single_tensor_shape), dtype=torch.long), self.pad_value)
+            for batch_index, length in enumerate(variable_lengths[:, group_index]):
+                padded_tensor[batch_index, :length] = tensors[batch_index]
+            padded_batch.append(padded_tensor)
+            lengths.append(torch.tensor(variable_lengths[:, group_index], dtype=torch.long))
+        return padded_batch, lengths
+
+
+def compute_vocab(csv_file, dst_file, tokenizer=word_tokenize, max_size=65536):
 
     # load csv
     with open(csv_file, 'r') as csvf:
@@ -103,7 +160,7 @@ class ToxicCommentDataset(Dataset):
         return len(self.rows)
 
 
-def produce_datasets(csv_file, vocab, val_ratio=0.2):
+def produce_datasets(csv_file, vocab=None, split_ratio=0.2):
 
     # load csv
     print("Loading CSV file '{}'...".format(csv_file))
@@ -112,17 +169,23 @@ def produce_datasets(csv_file, vocab, val_ratio=0.2):
         rows = list(csv_reader)[1:]
 
     # load vocab
+    if vocab is None:
+        print("Computing vocab...")
+        vocab_path = os.path.join(os.path.dirname(csv_file), "vocab.txt")
+        compute_vocab(csv_file, dst_file=vocab_path)
+        print("Vocab saved at '{}'.".format(vocab_path))
+        vocab = str(vocab_path)
     if isinstance(vocab, str):
         print("Loading vocab file '{}'...".format(vocab))
         vocab = LabelIndexMap.load(vocab)
     elif not isinstance(vocab, LabelIndexMap):
-        raise ValueError("vocab must be str or LabelIndexMap")
+        raise ValueError("vocab must be str, None or LabelIndexMap")
 
     # compute class prior probabilities
     prior_probabilities = [sum(int(row[i])/len(rows) for row in rows) for i in range(2, 8)]
 
     # produce datasets
-    train_size = int((1 - val_ratio) * len(rows))
+    train_size = int((1 - split_ratio) * len(rows))
     train_set, val_set = ToxicCommentDataset(rows[:train_size], vocab), ToxicCommentDataset(rows[train_size:], vocab)
     train_set.prior_probabilities = prior_probabilities
     val_set.prior_probabilities = prior_probabilities
@@ -130,8 +193,7 @@ def produce_datasets(csv_file, vocab, val_ratio=0.2):
 
 
 if __name__ == '__main__':
-    ds_train, ds_val = produce_datasets('jigsaw-toxic-comment-classification-challenge/train.csv',
-                                        'jigsaw-toxic-comment-classification-challenge/vocab.txt')
+    ds_train, ds_val = produce_datasets('jigsaw-toxic-comment-classification-challenge/train.csv')
     print(len(ds_train))
     print(len(ds_train.vocab))
     print(ds_train[34])
