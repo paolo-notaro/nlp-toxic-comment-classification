@@ -13,7 +13,6 @@ from nets import RNNMultiBinaryClassificationNet
 
 precomputed_positive_class_weights = torch.tensor([9.41494656, 98.42056075, 17.82831858,
                                                    329.71502591, 19.27895155, 115.05090909])
-classification_thresholds = torch.tensor([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
 
 
 def load_data(args):
@@ -53,8 +52,9 @@ def load_model(args):
 def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.optim.Optimizer, args):
 
     train_loader, test_loader = loaders
-    global classification_thresholds
-    classification_thresholds = classification_thresholds.to(args.device)
+    classification_thresholds = torch.tensor([0.8, 0.98, 0.9, 0.99, 0.91, 0.97]).to(args.device)
+
+
 
     print("Starting training...")
     writer = SummaryWriter()
@@ -92,7 +92,10 @@ def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.opti
 
         # evaluation
         epoch_duration = time.time() - t_start
-        print("\nEpoch completed in {:3.2f}s. Evaluating...\r".format(epoch_duration), end='')
+        print("\nEpoch completed in {:3.2f}s. "
+              "Evaluating (thresholds: {})...\r".format(epoch_duration,
+                                                        classification_thresholds.cpu().numpy()), end='')
+
         model.eval()
         test_loss = 0
         total_correct = torch.zeros((6,))
@@ -131,6 +134,10 @@ def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.opti
                              global_step=(epoch + 1) * len(train_loader))
         print("\nEvaluation completed.\nTest loss:\t{:2.6f}\naccuracies:\t{}\nprecisions:\t{}\n"
               "recalls:\t{}\nF1 scores:\t{}".format(test_loss, accuracies, precisions, recalls, f1_scores))
+
+        # adapt classification thresholds
+        precision_recall_distance = torch.tensor(precisions - recalls).to(args.device)
+        classification_thresholds -= (1 - classification_thresholds) * precision_recall_distance
 
         # save
         if test_loss < best_test_loss or avg_f1_score > best_f1_score:

@@ -6,7 +6,7 @@ from dataset import LabelIndexMap
 model_to_load = "loss=0.2414_f1=0.5478.pt"
 vocab_path = 'jigsaw-toxic-comment-classification-challenge/vocab.txt'
 device = torch.device('cpu')
-thresholds = array([0.8, 0.95, 0.9, 0.8, 0.9, 0.95])
+thresholds = array([0.8, 0.98, 0.9, 0.99, 0.91, 0.97])
 
 if __name__ == '__main__':
 
