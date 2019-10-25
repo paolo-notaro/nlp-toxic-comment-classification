@@ -7,6 +7,8 @@ import time
 from sys import argv
 from tensorboardX import SummaryWriter
 from argparse import ArgumentParser
+import pickle
+import datetime
 from dataset import produce_datasets, compute_binary_median_frequency_balancing, CollatePad
 from nets import RNNMultiBinaryClassificationNet
 
@@ -54,10 +56,12 @@ def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.opti
     train_loader, test_loader = loaders
     classification_thresholds = torch.tensor([0.8, 0.98, 0.9, 0.99, 0.91, 0.97]).to(args.device)
 
-
+    experiment_folder = "./runs/{}".format(datetime.datetime.now())
+    writer = SummaryWriter(experiment_folder)
+    with open(experiment_folder + "/config.pkl", "wb") as f:
+        pickle.dump(args, f)
 
     print("Starting training...")
-    writer = SummaryWriter()
     np.set_printoptions(4)
     best_test_loss = np.inf
     best_f1_score = 0
@@ -141,10 +145,16 @@ def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.opti
 
         # save
         if test_loss < best_test_loss or avg_f1_score > best_f1_score:
-            best_test_loss = test_loss
-            torch.save(model, "loss={:.4f}_f1={:.4f}.pt".format(test_loss, avg_f1_score))
+            if test_loss < best_test_loss:
+                best_test_loss = test_loss
+            if avg_f1_score > best_f1_score:
+                best_f1_score = best_f1_score
+            print("Saving...")
+            torch.save(model, "{}/epoch={}_loss={:.4f}_f1={:.4f}.pt".format(experiment_folder,
+                                                                            epoch, test_loss, avg_f1_score))
         if epoch % args.save_every == 0:
-            torch.save(model, "restore.pt")
+            print("Saving...")
+            torch.save(model, "{}/restore.pt".format(experiment_folder))
 
 
 if __name__ == '__main__':
