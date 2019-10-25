@@ -8,7 +8,7 @@ from sys import argv
 from tensorboardX import SummaryWriter
 from argparse import ArgumentParser
 from dataset import produce_datasets, compute_binary_median_frequency_balancing, CollatePad
-from nets import LSTMMultiBinaryClassificationNet
+from nets import RNNMultiBinaryClassificationNet
 
 
 precomputed_positive_class_weights = torch.tensor([9.41494656, 98.42056075, 17.82831858,
@@ -39,14 +39,15 @@ def load_data(args):
 
 def load_model(args):
     print("Loading model...", end='')
-    lstm_model = LSTMMultiBinaryClassificationNet(num_embeddings=args.vocab_size, embedding_dim=args.embedding_dim,
-                                                  num_classes=6, padding_idx=args.padding_idx, p_dropout=args.dropout,
-                                                  lstm_layers=len(args.rnn_sizes), hidden_size=args.rnn_sizes[0],
-                                                  additional_fc_layer=args.additional_fc, dev=args.device)
-    lstm_model.to(args.device)
-    adam = Adam(lstm_model.parameters(), lr=args.lr, weight_decay=args.reg)
-    print('done.')
-    return lstm_model, adam
+    rnn_model = RNNMultiBinaryClassificationNet(num_embeddings=args.vocab_size, embedding_dim=args.embedding_dim,
+                                                 num_tasks=6, padding_idx=args.padding_idx, p_dropout=args.dropout,
+                                                 rnn_layers=len(args.rnn_sizes), hidden_size=args.rnn_sizes[0],
+                                                 additional_fc_layer=args.additional_fc, dev=args.device)
+    rnn_model.to(args.device)
+    adam = Adam(rnn_model.parameters(), lr=args.lr, weight_decay=args.reg)
+    print('done. (number of learnable parameters: {})'.format(sum(p.numel() for p in rnn_model.parameters()
+                                                                  if p.requires_grad)))
+    return rnn_model, adam
 
 
 def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.optim.Optimizer, args):
