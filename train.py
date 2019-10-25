@@ -150,8 +150,8 @@ def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.opti
             if avg_f1_score > best_f1_score:
                 best_f1_score = best_f1_score
             print("Saving...")
-            torch.save(model, "{}/epoch={}_loss={:.4f}_f1={:.4f}.pt".format(experiment_folder,
-                                                                            epoch, test_loss, avg_f1_score))
+            torch.save(model, "{}/epoch={}_loss={:.4f}_f1={:.4f}.pt".format(experiment_folder, epoch+1,
+                                                                            test_loss, avg_f1_score))
         if epoch % args.save_every == 0:
             print("Saving...")
             torch.save(model, "{}/restore.pt".format(experiment_folder))
