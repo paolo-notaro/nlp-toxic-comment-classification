@@ -22,6 +22,7 @@ def load_data(args):
     torch.manual_seed(args.seed)
     ds_train, ds_test = produce_datasets('jigsaw-toxic-comment-classification-challenge/train.csv',
                                          'jigsaw-toxic-comment-classification-challenge/vocab.txt',
+                                         max_size=None,
                                          split_ratio=args.test_ratio)
     args.vocab_size = len(ds_train.vocab)
     args.padding_idx = ds_train.vocab.label_to_index['<PAD>']

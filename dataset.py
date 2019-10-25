@@ -160,13 +160,16 @@ class ToxicCommentDataset(Dataset):
         return len(self.rows)
 
 
-def produce_datasets(csv_file, vocab=None, split_ratio=0.2):
+def produce_datasets(csv_file, vocab=None, max_size=None, split_ratio=0.2):
 
     # load csv
     print("Loading CSV file '{}'...".format(csv_file))
     with open(csv_file, 'r') as csvf:
         csv_reader = csv.reader(csvf, delimiter=',')
         rows = list(csv_reader)[1:]
+    if max_size is not None:
+        assert 0 < max_size < len(rows), "Invalid max_size"
+        rows = rows[:max_size]
 
     # load vocab
     if vocab is None:
@@ -181,14 +184,9 @@ def produce_datasets(csv_file, vocab=None, split_ratio=0.2):
     elif not isinstance(vocab, LabelIndexMap):
         raise ValueError("vocab must be str, None or LabelIndexMap")
 
-    # compute class prior probabilities
-    prior_probabilities = [sum(int(row[i])/len(rows) for row in rows) for i in range(2, 8)]
-
     # produce datasets
     train_size = int((1 - split_ratio) * len(rows))
     train_set, val_set = ToxicCommentDataset(rows[:train_size], vocab), ToxicCommentDataset(rows[train_size:], vocab)
-    train_set.prior_probabilities = prior_probabilities
-    val_set.prior_probabilities = prior_probabilities
     return train_set, val_set
 
 
