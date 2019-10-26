@@ -79,7 +79,7 @@ def compute_vocab(csv_file, dst_file, tokenizer=word_tokenize, max_size=65536):
     vocab = set(map(lambda x: x[0], sorted(occurrences.items(), key=lambda x: x[1], reverse=True)[:max_size - 2]))
     vocab.add('<PAD>')
     vocab.add('<UNK>')
-    vocab = LabelIndexMap.from_list_of_labels(vocab, required_mappings={'<PAD>': 0, '<UNK>': 1})
+    vocab = LabelIndexMap.from_list_of_labels(list(vocab), required_mappings={'<PAD>': 0, '<UNK>': 1})
 
     # save vocab
     with open(dst_file, 'w') as f:
@@ -143,51 +143,56 @@ class LabelIndexMap(object):
 
 class ToxicCommentDataset(Dataset):
 
-    def __init__(self, rows: list, vocab: LabelIndexMap):
+    def __init__(self, rows: list, vocab: LabelIndexMap, max_sequence_length=None):
         # init
-        self.rows = rows
         self.vocab = vocab
+        self.max_sequence_length = max_sequence_length
+
+        if max_sequence_length is not None:
+            assert isinstance(max_sequence_length, int)
+
+        self.samples = []
+        for i, row in enumerate(rows):
+            print("Preparing dataset ({:6d}/{:6d})".format(i+1, len(rows)), end='\r')
+            text, classes = row[1], [float(x) for x in row[2:8]]
+            tokens = [self.vocab.label_to_index.get(token.lower(), self.vocab.label_to_index['<UNK>'])
+                      for token in word_tokenize(text)][:max_sequence_length]
+            self.samples.append((tokens, classes))
 
     def __getitem__(self, index):
-        row = self.rows[index]
-        text, classes = row[1], [float(x) for x in row[2:8]]
-        tokens = [self.vocab.label_to_index.get(token.lower(), self.vocab.label_to_index['<UNK>'])
-                  for token in word_tokenize(text)]
-        tokens, classes = torch.tensor(tokens), torch.tensor(classes)
-        return tokens, classes
+        tokens, classes = self.samples[index]
+        return torch.tensor(tokens), torch.tensor(classes)
 
     def __len__(self):
-        return len(self.rows)
+        return len(self.samples)
 
 
-def produce_datasets(csv_file, vocab=None, max_size=None, split_ratio=0.2):
+def produce_datasets(csv_file, max_dataset_size=None, max_sequence_length=None, vocab_size=65536, split_ratio=0.2):
 
     # load csv
     print("Loading CSV file '{}'...".format(csv_file))
     with open(csv_file, 'r') as csvf:
         csv_reader = csv.reader(csvf, delimiter=',')
         rows = list(csv_reader)[1:]
-    if max_size is not None:
+    if max_dataset_size is not None:
         assert 0 < max_size < len(rows), "Invalid max_size"
-        rows = rows[:max_size]
+        rows = rows[:max_dataset_size]
 
     # load vocab
-    if vocab is None:
-        print("Computing vocab...")
-        vocab_path = os.path.join(os.path.dirname(csv_file), "vocab.txt")
-        compute_vocab(csv_file, dst_file=vocab_path)
+    vocab_filename = "vocab_{}.txt".format(vocab_size)
+    vocab_path = os.path.join(os.path.dirname(csv_file), vocab_filename)
+    if not os.path.exists(vocab_path):
+        print("File '{}' not found. Computing vocab from training CSV file...".format(vocab_filename))
+        compute_vocab(csv_file, dst_file=vocab_path, max_size=vocab_size)
         print("Vocab saved at '{}'.".format(vocab_path))
-        vocab = str(vocab_path)
-    if isinstance(vocab, str):
-        print("Loading vocab file '{}'...".format(vocab))
-        vocab = LabelIndexMap.load(vocab)
-    elif not isinstance(vocab, LabelIndexMap):
-        raise ValueError("vocab must be str, None or LabelIndexMap")
+    print("Loading vocab file '{}'...".format(vocab_filename))
+    vocab = LabelIndexMap.load(vocab_path)
 
     # produce datasets
     train_size = int((1 - split_ratio) * len(rows))
-    train_set, val_set = ToxicCommentDataset(rows[:train_size], vocab), ToxicCommentDataset(rows[train_size:], vocab)
-    return train_set, val_set
+    train_set, test_set = ToxicCommentDataset(rows[:train_size], vocab, max_sequence_length), \
+                          ToxicCommentDataset(rows[train_size:], vocab, None)
+    return train_set, test_set
 
 
 if __name__ == '__main__':

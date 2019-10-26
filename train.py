@@ -22,8 +22,8 @@ def load_data(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     ds_train, ds_test = produce_datasets('jigsaw-toxic-comment-classification-challenge/train.csv',
-                                         'jigsaw-toxic-comment-classification-challenge/vocab.txt',
-                                         max_size=None,
+                                         vocab_size=args.vocab_size,
+                                         max_dataset_size=None, max_sequence_length=1000,
                                          split_ratio=args.test_ratio)
     args.vocab_size = len(ds_train.vocab)
     args.padding_idx = ds_train.vocab.label_to_index['<PAD>']
@@ -54,7 +54,7 @@ def load_model(args):
 def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.optim.Optimizer, args):
 
     train_loader, test_loader = loaders
-    classification_thresholds = torch.tensor([0.8, 0.98, 0.9, 0.99, 0.91, 0.97]).to(args.device)
+    classification_thresholds = torch.tensor([0.83, 0.99, 0.92, 0.99, 0.93, 0.97]).to(args.device)
 
     experiment_folder = "./runs/{}".format(datetime.datetime.now())
     writer = SummaryWriter(experiment_folder)
@@ -90,8 +90,8 @@ def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.opti
 
             if (j + 1) % args.log_every == 0:
                 writer.add_scalar("Loss/train", loss_value, global_step=epoch * len(train_loader) + j)
-                print("\rEpoch %3d/%3d, loss: %2.6f, "
-                      "batch: %3d/%3d, pad length: %4d" % (epoch + 1, args.epochs, loss_value, j + 1,
+                print("\rEpoch %3d/%3d, loss: %09.6f, "
+                      "batch: %4d/%4d, pad length: %4d" % (epoch + 1, args.epochs, loss_value, j + 1,
                                                            len(train_loader), max(input_lengths)), end='')
 
         # evaluation
@@ -149,11 +149,11 @@ def train_evaluate(loaders: tuple, model: torch.nn.Module, optimizer: torch.opti
                 best_test_loss = test_loss
             if avg_f1_score > best_f1_score:
                 best_f1_score = best_f1_score
-            print("Saving...")
+            print("Saving best model...")
             torch.save(model, "{}/epoch={}_loss={:.4f}_f1={:.4f}.pt".format(experiment_folder, epoch+1,
                                                                             test_loss, avg_f1_score))
         if epoch % args.save_every == 0:
-            print("Saving...")
+            print("Saving checkpoint...")
             torch.save(model, "{}/restore.pt".format(experiment_folder))
 
 
@@ -161,6 +161,7 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
     parser.add_argument("--epochs", default=100, type=int)
+    parser.add_argument("--vocab-size", default=32768, type=int)
     parser.add_argument("--test-ratio", default=0.2, type=float)
     parser.add_argument("--lr", default=3e-4, type=float)
     parser.add_argument("--lr-decay", default=1, type=float)  # TODO
@@ -169,8 +170,8 @@ if __name__ == '__main__':
     parser.add_argument("--dropout", default=0.0, type=float)
     parser.add_argument("--bs", default=32, type=int)
     parser.add_argument("--bs-val", default=256, type=int)
-    parser.add_argument("--embedding-dim", default=64, type=int)
-    parser.add_argument("--rnn-sizes", default=[128, 128], type=int, nargs="+")
+    parser.add_argument("--embedding-dim", default=128, type=int)
+    parser.add_argument("--rnn-sizes", default=[256, 256], type=int, nargs="+")
     parser.add_argument("--additional-fc", metavar="ADDITIONAL_FC_SIZE", default=None, type=int)
     parser.add_argument("--log-every", type=int, default=1)
     parser.add_argument("--save-every", type=int, default=1)
